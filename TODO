@@ -1,0 +1,123 @@
+* Get ctrl-c working on Windows, commands like 'findstr foo' hang.
+
+    GenerateConsoleCtrlEvent( win32con.CTRL_C_EVENT, 0 )
+    GenerateConsoleCtrlEvent( win32con.CTRL_BREAK_EVENT, 0 )
+
+    SetConsoleCtrlHandler( self.win32_sig_handler, 1 )
+
+    ret = windll.kernel32.FreeConsole()
+    print ( 'setup_pty: FreeConsole returned ' + str( ret ) )
+    print
+    ret = windll.kernel32.AllocConsole()
+    print ( 'setup_pty: AllocConsole returned ' + str( ret ) )
+    print
+
+    ret = windll.kernel32.AttachConsole( self.pid )
+    err = 0
+
+    if ( ret == 0 ):
+        err = GetLastError()
+
+    hwnd = windll.kernel32.GetConsoleWindow();
+
+    if ( hwnd ):
+        win32gui.ShowWindow( hwnd, win32con.SW_HIDE )
+
+* verify ctrl-d on solaris works
+
+* Ctrl-D/EOF not working on BSD for /bin/sh.
+
+* How to handle stderr inline with stdout? popen4?
+
+* Handle ( syntax hi ) ansi escape sequences ( colored prompts, LS_COLORS ).
+
+* Add hooks for write/read so scripts can ride on top of this one.
+  i.e. GDB run in terminal buffer, script hooks write read etc parses
+  output, and uses glyph to highlight current line, for example.
+
+* Support vim/python native to 'cygwin', cygwin seems to support select.
+
+* tab completion
+
+* command history
+
+* I can't use multiple threads ( vim just hangs ) so I need to find
+  a way to continue to get output in the background for commands that
+  take a while to post stuff to stdout.  This would also fix the clean
+  up after ctrl-c.  This issue is the the single biggest limitation
+  of this script.  Without multiple threads or some notification scheme,
+  constant output can't be read and also allow for keyboard input.
+  See below for an explanation of what I've tried so far and hasn't
+  worked.
+
+################################################################################
+
+    ##  Setup a periodic callback if the user is idle
+    vim.command( 'au CursorHoldI ' + self.filename + ' :python lookup_buf( "' + self.filename + '" ).itimer_fired()' )
+
+    def itimer_fired( self ):
+
+        dbg_print( 'itimer_fired: enter' )
+        self.page_output( 1 )
+
+        #vim.command( 'call feedkeys("\\' + page_output_key + '", "t")' )
+
+"function! VimShReadUpdate()
+
+    "  This function is a workaround until I can find
+    "  a way to periodically check for more output
+    "  for commands that continuously output until
+    "  interrupted ( ping ) or slow ones ( ftp ).
+    "  An ideal solution would be to have a function
+    "  registered to be called when vim is 'idle'.
+    "
+    "  I've tried all kinds of solutions:
+    "
+    "       Threading
+    "
+    "  Most of the time I see this:
+    "
+    "   %$ Xlib: unexpected async reply (sequence 0x33d5)!
+    "   Gdk-ERROR **: X connection to :0.0 broken (explicit kill or server shutdown).
+    "
+    "       Autocommands
+    "           
+    "           CursorHold doesn't work
+    "           And defining a User one causes a stack-overflow
+    "           in the regex engine, plus it's still a different
+    "           thread trying to write and it causes above behavior.
+    "
+    "       SIGALRM
+    "
+    "           Works, but alarm is only 'realized' when executing
+    "           python code, so until the user does something, like
+    "           execute a command, we never see the signal.
+    "
+    "  So this works and stays until I can
+    "  do one of the above and have it work or some
+    "  idle processing can be done.  The python script current
+    "  does create another thread to check for more data to
+    "  read but it *DOES NOT* write to the buffer, this causes
+    "  all sorts of problems.  What happens is, if the conditions
+    "  are right to check and there's more data to read this
+    "  function is invoked via that thread using the client/
+    "  server ability of vim.  It's a total hack, but it does
+    "  work.
+    "
+    "  Being able to use this hackjob workaround depends
+    "  on a few things being present.
+    "  
+    "  If I've read the docs right all that client/server stuff
+    "  goes through the X server, so this will not work
+    "  in pure console mode.  We also need to be compiled
+    "  with client/server support...
+
+    "if has( "gui_running" ) && has( "clientserver" )
+
+    "python vim_shell.page_output( 0 )
+    "
+    " Unfortunately this doesn't work well enough either, I still get
+    " the async errors mentioned above and other nasty side effects
+    " happen.  So I guess for now, <F5> it is to see more output.
+
+"endfunction
